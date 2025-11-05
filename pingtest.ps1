@@ -1,4 +1,4 @@
-# Purpose: Dynamically test local, gateway, DNS, and external connectivity + DNS resolution.
+# Purpose: Dynamically test locahost, local, gateway, DNS, and external connectivity with detailed network pathing + DNS resolution.
 # Inputs: none (auto-detects active network adapter)
 
 function Get-LastIpv4Address {
