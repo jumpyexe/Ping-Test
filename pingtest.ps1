@@ -137,7 +137,7 @@ if ($tracertCmd) {
     $tracertArgs = @('-d', '-w', '1500')
     Write-ColoredMessage -Message "`nTracing routes for tested targets..." -Color 'Cyan'
     foreach ($t in $targets) {
-        Write-ColoredMessage -Message "`nTracing $($t.Name): $($t.Addr)"
+        Write-ColoredMessage -Message "`nTracing $($t.Name): $($t.Addr)" -Color 'Cyan'
         & $tracertCmd.Source @tracertArgs $t.Addr
     }
 
