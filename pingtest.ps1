@@ -116,7 +116,7 @@ $dns          = ($adapter.DNSServerSearchOrder | Select-Object -First 1)
 $external     = '8.8.8.8'
 $testHost     = 'microsoft.com'
 
-Write-ColoredMessage -Message "Testing connectivity for adapter $interfaceName...`n"
+Write-ColoredMessage -Message "Testing connectivity for adapter $interfaceName...`n" -Color 'Cyan'
 
 # Connectivity test: ping loopback, local interface, gateway, DNS, and an external endpoint.
 $targets = @(@{Name = 'Localhost'; Addr = '127.0.0.1'})
@@ -141,7 +141,7 @@ if ($tracertCmd) {
         & $tracertCmd.Source @tracertArgs $t.Addr
     }
 
-    Write-ColoredMessage -Message "`nTracing DNS resolution host target: $testHost"
+    Write-ColoredMessage -Message "`nTracing DNS resolution host target: $testHost" -Color 'Cyan'
     & $tracertCmd.Source @tracertArgs $testHost
 }
 else {
