@@ -72,14 +72,24 @@ function Get-OptionalCommand {
     }
 }
 
-function Get-LastIpv4Address {
+function Get-NsLookupAnswerIpv4Address {
     param(
         [string[]]$Text
     )
 
     try {
         $ipv4Addresses = @()
+        $answerStarted = $false
         foreach ($line in $Text) {
+            # Windows nslookup separates the resolver header from the answer with
+            # an empty line. Do not mistake the resolver's address for an answer.
+            if (-not $answerStarted) {
+                if ([string]::IsNullOrWhiteSpace($line)) {
+                    $answerStarted = $true
+                }
+                continue
+            }
+
             $matches = [regex]::Matches($line, '(\d{1,3}(?:\.\d{1,3}){3})')
             foreach ($match in $matches) {
                 $segments = $match.Value.Split('.') | ForEach-Object { [int]$_ }
@@ -183,23 +193,16 @@ function Invoke-TraceRoute {
 
         $outputText = $output -join "`n"
         $hasTimeout = $outputText -match 'Request timed out|\*\s+\*\s+\*'
-        $traceComplete = $outputText -match 'Trace complete'
-
         if ($exitCode -ne 0) {
             throw "tracert exited with code $exitCode."
         }
 
-        if (-not $traceComplete) {
-            Write-ColoredMessage -Message "  TRACE FAILED: destination not reached within max $MaxHops hops." -Color 'Red'
-            return $false
-        }
-
         if ($hasTimeout) {
-            Write-ColoredMessage -Message "  TRACE OK: completed within max $MaxHops hops; one or more intermediate hops did not reply." -Color 'Green'
+            Write-ColoredMessage -Message "  TRACE FINISHED: tracert exited successfully; one or more hops did not reply." -Color 'Green'
             return $true
         }
 
-        Write-ColoredMessage -Message "  TRACE OK: completed within max $MaxHops hops." -Color 'Green'
+        Write-ColoredMessage -Message '  TRACE FINISHED: tracert exited successfully.' -Color 'Green'
         return $true
     }
     catch {
@@ -264,7 +267,7 @@ function Invoke-NsLookupResolutionTest {
         }
 
         $lines = (@($output) -join "`n") -split "`r?`n"
-        $ipAddress = Get-LastIpv4Address -Text $lines
+        $ipAddress = Get-NsLookupAnswerIpv4Address -Text $lines
         if (-not $ipAddress) {
             throw 'Resolution completed but no IPv4 address was found.'
         }
@@ -283,7 +286,7 @@ function Invoke-GlobalConnectivityTest {
         [System.Management.Automation.CommandInfo]$TracertCommand
     )
 
-    $issues = [System.Collections.ArrayList]::new()
+    $issues = New-Object System.Collections.ArrayList
 
     try {
         Write-ColoredMessage -Message "`n============================================================" -Color 'Cyan'
@@ -334,7 +337,7 @@ function Invoke-AdapterConnectivityTest {
         [string]$TestHost
     )
 
-    $issues = [System.Collections.ArrayList]::new()
+    $issues = New-Object System.Collections.ArrayList
     $interfaceName = if ($Adapter.NetConnectionID) { $Adapter.NetConnectionID } else { $Adapter.Description }
 
     try {
@@ -342,6 +345,10 @@ function Invoke-AdapterConnectivityTest {
         $gateway = ($Adapter.DefaultIPGateway | Select-Object -First 1)
         $dnsServers = @($Adapter.DNSServerSearchOrder | Where-Object { $_ })
         $primaryDns = $dnsServers | Select-Object -First 1
+
+        if (-not $gateway) {
+            Add-Issue -Issues $issues -Issue 'gateway not detected'
+        }
 
         Write-ColoredMessage -Message "`n============================================================" -Color 'Cyan'
         Write-ColoredMessage -Message "Testing connectivity for adapter $interfaceName" -Color 'Cyan'
@@ -354,7 +361,7 @@ function Invoke-AdapterConnectivityTest {
         Write-ColoredMessage -Message "============================================================`n" -Color 'Cyan'
 
         # Adapter-specific connectivity test: local interface, gateway, DNS, and an external endpoint.
-        $targets = [System.Collections.ArrayList]::new()
+        $targets = New-Object System.Collections.ArrayList
         Add-TargetIfPresent -Targets $targets -Name 'Local' -Address $localIP
         Add-TargetIfPresent -Targets $targets -Name 'Gateway' -Address $gateway
         foreach ($dnsServer in $dnsServers) {
@@ -442,13 +449,20 @@ function Write-OneLineSummary {
 }
 
 $logPath = $null
+$scriptExitCode = 0
 try {
-    $logPath = Start-NetworkTestLog
+    try {
+        $logPath = Start-NetworkTestLog
+    }
+    catch {
+        Write-ColoredMessage -Message "$($_.Exception.Message) Continuing without a transcript." -Color 'Yellow'
+    }
+
     $tracertCmd = Get-OptionalCommand -Name 'tracert'
     $adapters = @(Get-ActiveNetworkAdapters)
     $external = '9.9.9.9'  # Quad9 public DNS as a reliable external endpoint for connectivity testing.
     $testHost = 'cloudflare.com'  # A well-known domain for testing DNS resolution.
-    $results = [System.Collections.ArrayList]::new()
+    $results = New-Object System.Collections.ArrayList
 
     Write-ColoredMessage -Message "Network test started. Active adapters detected: $($adapters.Count)" -Color 'Cyan'
 
@@ -459,12 +473,21 @@ try {
     }
 
     Write-OneLineSummary -Results @($results)
+    if (@($results | Where-Object { $_.Issues.Count -gt 0 }).Count -gt 0) {
+        $scriptExitCode = 2
+    }
+
     Write-ColoredMessage -Message "`nNetwork test completed." -Color 'Cyan'
-    Write-ColoredMessage -Message "Log saved to $logPath" -Color 'Cyan'
+    if ($logPath) {
+        Write-ColoredMessage -Message "Log saved to $logPath" -Color 'Cyan'
+    }
+    else {
+        Write-ColoredMessage -Message 'No transcript was saved.' -Color 'Yellow'
+    }
 }
 catch {
     Write-ColoredMessage -Message "Network test failed: $($_.Exception.Message)" -Color 'Red'
-    exit 1
+    $scriptExitCode = 1
 }
 finally {
     if ($logPath) {
@@ -476,3 +499,5 @@ finally {
         }
     }
 }
+
+exit $scriptExitCode
